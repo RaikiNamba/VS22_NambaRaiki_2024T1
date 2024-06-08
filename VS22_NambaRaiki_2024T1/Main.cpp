@@ -43,6 +43,12 @@ namespace constants {
 
 		//ボールの初期のYポジション
 		constexpr int YPOS = 400;
+
+		//ボールのサイズを小さくする比率
+		constexpr float SHRINK_MULTIPLY = 0.95f;
+
+		//ボールの最小サイズ
+		constexpr int MIN_SIZE = 2;
 	}
 
 	namespace paddle {
@@ -114,20 +120,28 @@ public:
 	}
 
 	void ShrinkBall(float multiply) {
+		using namespace constants::ball;
 		//ボールの半径が2以下になったら縮小をしなくする
-		if (ball.r <= 2)return;
-		//ball = ball.stretched(-1 * multiply);
-		ball = ball.scaled(.95f);
+		if (ball.r == MIN_SIZE)return;
+
+		auto resultR = ball.scaled(multiply).r;
+		if (resultR < MIN_SIZE) {
+			ball.setR(MIN_SIZE);
+			return;
+		}
+		ball.setR(resultR);
 	}
 
+	//ボールが範囲外か
 	bool IsOutOfSceneView() {
 		return ball.y > Scene::Height();
 	}
 
+	//初期化
 	void Init() {
-		ball = ball.setPos(constants::ball::XPOS, constants::ball::YPOS);
-		velocity = velocity.set(0, -constants::ball::SPEED);
-		ball = ball.setR(constants::ball::SIZE);
+		ball.setPos(constants::ball::XPOS, constants::ball::YPOS);
+		velocity.set(0, -constants::ball::SPEED);
+		ball.setR(constants::ball::SIZE);
 	}
 };
 
@@ -158,6 +172,7 @@ public:
 		}
 	}
 
+	//初期化
 	void Init() {
 		using namespace constants::brick;
 		for (int y = 0; y < Y_COUNT; ++y) {
@@ -252,15 +267,14 @@ void Bricks::Intersects(Ball* const target) {
 				|| refBrick.top().intersects(ball))
 			{
 				target->Reflect(reflect::VERTICAL);
-				//あたったらボールの大きさを変える
-				target->ShrinkBall(0.5f);
 			}
 			else // ブロックの左辺または右辺と交差
 			{
 				target->Reflect(reflect::HORIZONTAL);
-				//あたったらボールの大きさを変える
-				target->ShrinkBall(0.5f);
 			}
+
+			//あたったらボールの大きさを変える
+			target->ShrinkBall(ball::SHRINK_MULTIPLY);
 
 			// あたったブロックは画面外に出す
 			refBrick.y -= 600;
@@ -288,41 +302,50 @@ void Paddle::Intersects(Ball* const target) const {
 	}
 }
 
+enum class GameState {
+	Start,
+	InGame,
+	GameStop,
+	GameEnd
+};
+
 class Game {
 private:
-	bool isGameStop = true;
-	bool isGamimg = false;
-	bool isGameOver = false;
 	int life;
+	GameState state = GameState::Start;
 public:
 	Game() {
 		life = constants::game::LIFE;
 	}
 
+	//初期化
 	void Init() {
 		life = constants::game::LIFE;
-		isGameOver = false;
 	}
 
-	void SetIsGaming(bool isGameing) {
-		this->isGamimg = isGameing;
+	//現在のライフ
+	int GetLife() {
+		return life;
 	}
 
-	bool IsGaming() {
-		return isGamimg;
-	}
-
-	bool DecreaseLife() {
+	//ライフを１減らす
+	void DecreaseLife() {
 		life--;
+	}
+
+	//生存
+	bool IsAlive() {
 		return life > 0;
 	}
 
-	void GameOver() {
-		isGameOver = true;
+	//ステートの変更
+	void ChangeState(GameState toState) {
+		state = toState;
 	}
 
-	bool IsGameOver() {
-		return isGameOver;
+	//現在のステート
+	GameState GetState() {
+		return state;
 	}
 };
 
@@ -340,53 +363,59 @@ void Main()
 
 	while (System::Update())
 	{
-		if (KeySpace.pressed()) {
-			if (game.IsGameOver())game.Init();
-			game.SetIsGaming(true);
-		}
-
-		if (game.IsGameOver()) {
-			font(U"ゲームオーバー\nスペースを押してゲームスタート").draw(50, Arg::center(Scene::Width() / 2, Scene::Height() / 2));
-			continue;
-		}
-		else if (!game.IsGaming()) {
+		switch (game.GetState())
+		{
+		case GameState::Start:
+			if (KeySpace.pressed())game.ChangeState(GameState::InGame);
 			font(U"スペースを押してゲームスタート").draw(50, Arg::center(Scene::Width() / 2, Scene::Height() / 2));
-			continue;
-		}
+			break;
 
-		//==============================
-		// 更新
-		//==============================
-		paddle.Update();
-		ball.Update();
+		case GameState::InGame:
+			//==============================
+			// 更新
+			//==============================
+			paddle.Update();
+			ball.Update();
 
-		//==============================
-		// コリジョン
-		//==============================
-		bricks.Intersects(&ball);
-		Wall::Intersects(&ball);
-		paddle.Intersects(&ball);
+			//==============================
+			// コリジョン
+			//==============================
+			bricks.Intersects(&ball);
+			Wall::Intersects(&ball);
+			paddle.Intersects(&ball);
 
-		//==============================
-		// 描画
-		//==============================
-		bricks.Draw();
-		ball.Draw();
-		paddle.Draw();
+			//==============================
+			// 描画
+			//==============================
+			bricks.Draw();
+			ball.Draw();
+			paddle.Draw();
 
-		if (ball.IsOutOfSceneView()) {
-			//Restart
-			if (game.DecreaseLife()) {
-				Print(U"Continue");
+			if (ball.IsOutOfSceneView()) {
+				game.DecreaseLife();
+				//リスタート
+				if (game.IsAlive()) {
+					game.ChangeState(GameState::GameStop);
+				}
+				//ゲームオーバー
+				else {
+					game.ChangeState(GameState::GameEnd);
+					bricks.Init();
+					game.Init();
+				}
+				ball.Init();
 			}
-			//GameOver
-			else {
-				Print(U"GameOver");
-				game.GameOver();
-				bricks.Init();
-			}
-			game.SetIsGaming(false);
-			ball.Init();
+			break;
+
+		case GameState::GameStop:
+			if (KeySpace.pressed())game.ChangeState(GameState::InGame);
+			font(U"スペースを押してリスタート\n残りのライフ {}"_fmt(game.GetLife())).draw(50, Arg::center(Scene::Width() / 2, Scene::Height() / 2));
+			break;
+
+		case GameState::GameEnd:
+			if (KeySpace.pressed())game.ChangeState(GameState::InGame);
+			font(U"ゲームオーバー\nスペースを押してゲームスタート").draw(50, Arg::center(Scene::Width() / 2, Scene::Height() / 2));
+			break;
 		}
 	}
 }
