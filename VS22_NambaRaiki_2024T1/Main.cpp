@@ -150,7 +150,7 @@ class Bricks final {
 private:
 	/// @brief ブロックリスト
 	Rect brickTable[constants::brick::MAX];
-
+	int intersectBrick = 0;
 public:
 	/// @brief コンストラクタ
 	Bricks() {
@@ -185,6 +185,14 @@ public:
 				};
 			}
 		}
+
+		intersectBrick = 0;
+	}
+
+	//brickが存在するかどうか
+	bool IsExistBrick() {
+		using namespace constants::brick;
+		return intersectBrick < MAX;
 	}
 };
 
@@ -210,7 +218,7 @@ public:
 
 	/// @brief 描画
 	void Draw() const {
-		paddle.rounded(3).draw();
+		paddle.rounded(3).drawFrame(1, 2);
 	}
 };
 
@@ -276,6 +284,9 @@ void Bricks::Intersects(Ball* const target) {
 			//あたったらボールの大きさを変える
 			target->ShrinkBall(ball::SHRINK_MULTIPLY);
 
+			//あたった回数を保持する変数をインクリメント
+			intersectBrick++;
+
 			// あたったブロックは画面外に出す
 			refBrick.y -= 600;
 
@@ -306,6 +317,7 @@ enum class GameState {
 	Start,
 	InGame,
 	GameStop,
+	GameClear,
 	GameEnd
 };
 
@@ -334,7 +346,7 @@ public:
 	}
 
 	//生存
-	bool IsAlive() {
+	bool IsExistLife() {
 		return life > 0;
 	}
 
@@ -348,7 +360,14 @@ public:
 		return state;
 	}
 };
-
+/// @brief 上下方向のグラデーションの背景を描画します。
+/// @param topColor 上部の色
+/// @param bottomColor 下部の色
+void DrawVerticalGradientBackground(const ColorF& topColor, const ColorF& bottomColor)
+{
+	Scene::Rect()
+		.draw(Arg::top = topColor, Arg::bottom = bottomColor);
+}
 //==============================
 // エントリー
 //==============================
@@ -363,38 +382,38 @@ void Main()
 
 	while (System::Update())
 	{
+		Cursor::RequestStyle(CursorStyle::Hidden);
+		DrawVerticalGradientBackground(ColorF{ 0.2, 0.5, 1.0 }, Palette::Black);
 		switch (game.GetState())
 		{
 		case GameState::Start:
 			if (KeySpace.pressed())game.ChangeState(GameState::InGame);
-			font(U"スペースを押してゲームスタート").draw(50, Arg::center(Scene::Width() / 2, Scene::Height() / 2));
+			font(U"スペースを押してゲームスタート").drawAt(50, Scene::Width() / 2, Scene::Height() / 3);
 			break;
 
 		case GameState::InGame:
-			//==============================
 			// 更新
-			//==============================
 			paddle.Update();
 			ball.Update();
 
-			//==============================
 			// コリジョン
-			//==============================
 			bricks.Intersects(&ball);
 			Wall::Intersects(&ball);
 			paddle.Intersects(&ball);
 
-			//==============================
+
 			// 描画
-			//==============================
 			bricks.Draw();
 			ball.Draw();
 			paddle.Draw();
 
+
+
+			// 画面外判定
 			if (ball.IsOutOfSceneView()) {
 				game.DecreaseLife();
 				//リスタート
-				if (game.IsAlive()) {
+				if (game.IsExistLife()) {
 					game.ChangeState(GameState::GameStop);
 				}
 				//ゲームオーバー
@@ -405,17 +424,37 @@ void Main()
 				}
 				ball.Init();
 			}
+
+			//ゲームクリア判定
+			if (!bricks.IsExistBrick()) {
+				game.ChangeState(GameState::GameClear);
+				bricks.Init();
+				game.Init();
+				ball.Init();
+			}
+
 			break;
 
 		case GameState::GameStop:
 			if (KeySpace.pressed())game.ChangeState(GameState::InGame);
-			font(U"スペースを押してリスタート\n残りのライフ {}"_fmt(game.GetLife())).draw(50, Arg::center(Scene::Width() / 2, Scene::Height() / 2));
+			font(U"スペースを押してリスタート").drawAt(50, Scene::Width() / 2, Scene::Height() / 3);
+			font(U"残りのライフ {}"_fmt(game.GetLife())).drawAt(50, Scene::Width() / 2, Scene::Height() / 2, Palette::Yellow);
 			break;
 
 		case GameState::GameEnd:
 			if (KeySpace.pressed())game.ChangeState(GameState::InGame);
-			font(U"ゲームオーバー\nスペースを押してゲームスタート").draw(50, Arg::center(Scene::Width() / 2, Scene::Height() / 2));
+			font(U"ゲームオーバー").drawAt(50, Scene::Width() / 2, Scene::Height() / 3, Palette::Red);
+			font(U"スペースを押してゲームスタート").drawAt(50, Scene::Width() / 2, Scene::Height() / 2);
+			break;
+
+		case GameState::GameClear:
+			if (KeySpace.pressed())game.ChangeState(GameState::InGame);
+			font(U"ゲームクリア").drawAt(50, Scene::Width() / 2, Scene::Height() / 3, Palette::Yellow);
+			font(U"スペースを押してゲームスタート").drawAt(50, Scene::Width() / 2, Scene::Height() / 2);
 			break;
 		}
 	}
+
 }
+
+
